@@ -2,113 +2,12 @@ import scala.util.Try
 import scala.io.StdIn.readLine
 
 import shapeless._
+import shapeless.ops._
+import shapeless.poly._
 
 import scala.language.implicitConversions
 
 package object busywork {
-
-  // sealed trait Coproduct
-  // sealed trait :+:[+H, +T <: Coproduct] extends Coproduct
-  // case class Inl[+H, +T <: Coproduct](head: H) extends (H :+: T)
-  // case class Inr[+H, +T <: Coproduct](tail: T) extends (H :+: T)
-  // sealed trait CNil extends Coproduct
-  // object Coproduct {
-  //   def apply[C <: Coproduct] = {
-  //     def apply[A](a: A)(implicit inject: Inject[A, C]): inject.Out = inject(a)
-  //   }
-
-  //   trait Inject[A, C <: Coproduct] {
-  //     type Out <: C
-  //     def apply(a: A): Out
-  //   }
-  //   object Inject {
-  //     implicit def injectCaseLeft[H, T <: Coproduct]: Inject[H, H :+: T] =
-  //       new Inject[H, H :+: T] {
-  //         type Out = Inl[H, T]
-  //         def apply(a: H): Out = Inl[H, T](a)
-  //       }
-  //     implicit def injectCaseRight[A, H, T <: Coproduct](
-  //       implicit caseLeft: Inject[A, T]
-  //     ): Inject[A, H :+: T] =
-  //       new Inject[A, H :+: T] {
-  //         type Out = Inr[H, caseLeft.Out]
-  //         def apply(a: A): Out = Inr[H, caseLeft.Out](caseLeft(a))
-  //       }
-  //   }
-
-  //   def lift[C <: Coproduct] = {
-  //     def apply[A <: Coproduct](a: A)(implicit lifter: Lift[A, C]): lifter.Out = lifter(a)
-  //   }
-
-  //   trait Lifter[A <: Coproduct, C <: Coproduct] {
-  //     type Out <: C
-  //     def apply(a: A): Out
-  //   }
-  //   object Lifter {
-  //     implicit def liftCaseFound[H1, T1 <: Coproduct, H2, T2 <: Coproduct, C <: H2 :+: T2](
-  //       implicit next: Lifter[T1, T2]
-  //     ): Lifter[Inl[H1, T1], T2] =
-  //       new Lifter[Inl[H, T], C] {
-  //         type Out = Inl[H, next.Out]
-  //         def apply(a: Inl[H, T]): Out = Inl[H, next.Out](a.head)
-  //       }
-
-  //     implicit def liftCaseNext[H, T <: Coproduct, C <: Coproduct](
-  //       implicit next: Lifter[T, C]
-  //     ): Lifter[Inr[H, T], C] =
-  //       new Lifter[Inr[H, T], C] {
-  //         type Out = Inr[H, next.Out]
-  //         def apply(a: Inr[H, T]): Out = Inr[H, next.Out](a.tail)
-  //       }
-
-  //     implicit def liftCaseEnd[C <: Coproduct]: Lifter[CNil, C] =
-  //       new Lifter[CNil, C] {
-  //         type Out = C
-  //         def apply(a: Inr[H, T]): Out = Inr[H, next.Out](a.tail)
-  //       }
-  //   }
-
-  //   def unify[C <: Coproduct](c: C)(implicit unifier: Unify): unifier.Out = unifier(c)
-
-  //   trait Unify[C <: Coproduct] {
-  //     type Out <: Coproduct
-  //     def apply(c: C): Out
-  //   }
-
-  //   object Unify {
-  //     trait Lub[-A, -B, Out] extends Serializable {
-  //       def left(a : A): Out
-  //       def right(b : B): Out
-  //     }
-
-  //     implicit def lub[T] = new Lub[T, T, T] {
-  //       def left(a : T): T = a
-  //       def right(b : T): T = b
-  //     }
-
-  //     implicit def unifyCaseMain[H1, H2, T <: Coproduct, L, Out0](
-  //       implicit lt: Unify[H2 :+: T, L] { type Out = L },
-  //       u: Lub[H1, L, Out0]
-  //     ): Unify[H1 :+: H2 :+: T] =
-  //       new Unify[H1 :+: H2 :+: T] {
-  //         type Out = Out0
-  //         def apply(c: H1 :+: H2 :+: T): Out = c match {
-  //           case Inl(h1) => u.left(h1)
-  //           case Inr(t) => u.right(lt(t))
-  //         }
-  //       }
-
-  //     implicit def unifyCaseLast[H]: Aux[H :+: CNil, H] =
-  //       new Unify[H :+: CNil] {
-  //         type Out = H
-  //         def apply(c: H :+: CNil): Out = (c: @unchecked) match {
-  //           case Inl(h) => h
-  //         }
-  //       }
-  //   }
-  // }
-
-  type |:[+A, +B] = Either[A, B]
 
   trait Work {
     type Result
@@ -117,37 +16,151 @@ package object busywork {
     type Aux[R] = Work { type Result = R }
   }
 
-  trait Executor[W <: Work] extends (W => W#Result)
+  trait Executor[WorkType <: Work] extends (WorkType => WorkType#Result)
 
-  class Executors[L <: HList](underlying: L) extends Poly1 {
-    import shapeless.ops.hlist._
-    import shapeless.poly._
-    implicit def caseSelectable[W <: Work](implicit selector: Selector[L, W => W#Result]) =
-      Case1[this.type, W, W => W#Result](selector(underlying))
+  trait FindExecutors[WorkTypeUnion <: Coproduct] {
+    type Out <: HList
+    def apply: Out
+    // can prove this much
+    // def apply[WorkType <: Work](
+    //   implicit selector: coproduct.Selector[WorkTypeUnion, WorkType]
+    // ): Out
+  }
+  object FindExecutors {
+    implicit def caseCons[WorkType <: Work, T <: Coproduct](
+      implicit tail: FindExecutors[T],
+      executor: Executor[WorkType]
+    ): FindExecutors[WorkType :+: T] = new FindExecutors[WorkType :+: T] {
+      type Out = Executor[WorkType] :: tail.Out
+      def apply: Out = executor :: tail.apply
+    }
+
+    implicit def caseNil: FindExecutors[CNil] = new FindExecutors[CNil] {
+      type Out = HNil
+      def apply: Out = HNil
+    }
+  }
+
+  trait Execute[WorkTypeUnion <: Coproduct] extends Poly1
+
+  // ExecutorTypeList bounded to (WorkType <: Work) => (WorkType#Result)
+  // Given [WorkTypeUnion <: Coproduct, ExecutorTypeList <: HList]
+  // Execute is a poly function
+  //   from [WorkType <: Work : coproduct.Selector[WorkTypeUnion, ?]]
+  //   to   [WorkType#Result]
+  // In order to extract this result, there must exist:
+  //   hlist.Selector[ExecutorTypeList, Executor[WorkType]]
+  class BuildExecutors[WorkType <: Work, CT <: Coproduct, LT <: HList](
+    executors: Executor[WorkType] :: LT
+  ) extends Poly1 with Execute[WorkType :+: CT] {
+    implicit def caseHead = Case1[this.type, WorkType, WorkType#Result](executors.head)
+    // implicit def caseTail[W <: Work] = Case1[this.type, 
+    // implicit def chained[W <: Work, CTT <: Coproduct, LTT <: HList]: BuildExecutors[W, CTT, LTT] =
+    //   new BuildExecutors
+    // implicit def caseSelectable[W <: Work](implicit selector: hlist.Selector[Executor[WorkType] :: LT, W => W#Result]) =
+    //   Case1[this.type, W, W#Result](selector(executors)(_))
   }
 
   // sealed with typeclass?
-  trait Program[C <: Coproduct] { self =>
-    import shapeless.ops.coproduct._
+  trait Program[+WorkTypeUnion <: Coproduct] {
     type Result
-    def map[R, M <: Work.Aux[R]](fa: Result => M)(implicit prepend: Prepend[C, M :+: CNil]): Program[prepend.Out] =
-      Program.FlatMap[
-        C,
-        M :+: CNil,
-        prepend.Out,
-        self.Result,
-        R
-      ](this, (x: Result) => Program.Pure(fa(x)))(prepend)
-    def flatMap[R, M <: Coproduct](fa: Result => Program.Aux[M, R])(implicit prepend: Prepend[C, M]): Program[prepend.Out] =
-      Program.FlatMap[
-        C,
-        M,
-        prepend.Out,
-        self.Result,
-        R
-      ](this, fa)(prepend)
-    def run(executor: C => Result)
+
+    def map[R, M <: Work.Aux[R], NewWorkTypeUnion <: Coproduct](fa: Result => M)(
+      implicit initEmbedBasis: coproduct.Basis[NewWorkTypeUnion, WorkTypeUnion],
+      mappedEmbedBasis: coproduct.Basis[NewWorkTypeUnion, M :+: CNil],
+      prepend: coproduct.Prepend.Aux[WorkTypeUnion, M :+: CNil, NewWorkTypeUnion]
+      // implicit prepend: coproduct.Prepend[WorkTypeUnion, M :+: CNil]
+    ): Program[prepend.Out] =
+      Program.FlatMap[WorkTypeUnion, M :+: CNil, prepend.Out, this.type, Program.Pure[M]](
+      // Program.FlatMap[WorkTypeUnion, M :+: CNil, prepend.Out, Result, R](
+        this,
+        (x: Result) => Program.Pure(fa(x))
+      )
+    def flatMap[M <: Coproduct, P <: Program[M], C <: Coproduct](fa: Result => P)(
+      implicit initEmbedBasis: coproduct.Basis[C, WorkTypeUnion],
+      mappedEmbedBasis: coproduct.Basis[C, M],
+      prepend: coproduct.Prepend.Aux[WorkTypeUnion, M, C]
+    // def flatMap[R, M <: Coproduct](fa: Result => Program.Aux[M, R])(
+      // implicit prepend: coproduct.Prepend[WorkTypeUnion, M]
+    ): Program[prepend.Out] =
+      Program.FlatMap[WorkTypeUnion, M, prepend.Out, this.type, P](this, fa)
+      // Program.FlatMap[WorkTypeUnion, M, prepend.Out, Result, R](this, fa)(prepend)
+    // def run(executor: WorkTypeUnion => Result)
+    // def run[C <: Coproduct, L <: HList](execute: Execute[L])(
+    //   implicit m: coproduct.Mapper[execute.type, WorkTypeUnion],
+    //   embedBasis: coproduct.Basis[C, WorkTypeUnion]
+    // ): m.Out
+    def run[ExecutorList <: HList](execute: Execute[ExecutorList])(
+      implicit mapper: ConcreteMapper.Aux[execute.type, WorkTypeUnion, Result]
+    ): Result
   }
+
+  object Program {
+
+    type Aux[WorkTypeUnion <: Coproduct, R] = Program[WorkTypeUnion] { type Result = R }
+
+    def apply[A <: Work](work: A): Program1[A] = Pure(work)
+
+    case class Pure[WorkType <: Work](work: WorkType) extends Program[Inl[WorkType, CNil]] {
+      type Result = work.Result
+      def run[ExecutorList <: HList](execute: Execute[ExecutorList])(
+        implicit mapper: ConcreteMapper.Aux[execute.type, Inl[WorkType, CNil], Result]
+      ): Result = mapper[Inl[WorkType, CNil]](Inl[WorkType, CNil](work))
+    }
+    case class FlatMap[
+      InitWorkTypeUnion <: Coproduct,
+      MappedWorkTypeUnion <: Coproduct,
+      WorkTypeUnion <: Coproduct,
+      InitProgram <: Program[InitWorkTypeUnion],
+      MappedProgram <: Program[MappedWorkTypeUnion]
+    ](
+      init: InitProgram,
+      mapFn: InitProgram#Result => Program[MappedWorkTypeUnion]
+    )(
+      implicit initEmbedBasis: coproduct.Basis[WorkTypeUnion, InitWorkTypeUnion],
+      mappedEmbedBasis: coproduct.Basis[WorkTypeUnion, MappedWorkTypeUnion]
+    ) extends Program[WorkTypeUnion] {
+      type Result = MappedProgram#Result
+
+      // logic:
+      // Because I know I can map any W in A <: Coproduct
+      //   to a W => W#Result in ExecutorList <: HList,
+      //   : Mapper
+      // I know I can map any W to a W => W#Result with ExecutorList <: HList
+      def run[ExecutorList <: HList](execute: Execute[ExecutorList])(
+        implicit mapper: ConcreteMapper.Aux[execute.type, WorkTypeUnion, Result]
+      ): Result = {
+        implicit def subMapper[Sub <: Coproduct](
+          implicit basis: coproduct.Basis[WorkTypeUnion, Sub]
+        ): coproduct.Mapper[execute.type, Sub] = new coproduct.Mapper[execute.type, Sub] {
+          type Out = mapper.Out
+          def apply(sub: Sub): Out = mapper(basis.inverse(Right(sub)))
+        }
+        mapFn(init.run(execute)).run(execute)
+      }
+    }
+    // case class Aligned[AC <: Coproduct, C <: Coproduct](ac: AC)()
+
+    // trait
+
+
+
+    // use `adjoined` function to compare programs with combined
+    // def adjoined(implicit adjoin: Adjoin[C]): adjoin.Out = adjoin(c)
+    // use `unify` and `align` functions to 
+    // use `align` to tell whether two programs have the same types of work
+    // def align[K <: Coproduct](implicit align: Align[C, K]): K = align(c)
+
+    implicit class ProgramOps[C <: Coproduct, R, A <: Aux[C, R]](work: A) {
+      // def map[B](f: R => B) =
+      //   FlatMap(chore, (a: R) => Pure(f(a)))
+      // def flatMap[C2 <: Coproduct, R2, B <: Aux[C2, R2]](f: R => B)(
+      //   implicit 
+      // ): Program[A :+: B :+: CNil] =
+      //   FlatMap[C, C2, R, R2, A, B](work, f)
+    }
+  }
+
   type Program1[A] = Program[A :+: CNil]
   type Program2[A, B] = Program[A :+: B :+: CNil]
   type Program3[A, B, C] = Program[A :+: B :+: C :+: CNil]
@@ -183,53 +196,6 @@ package object busywork {
     Program[A :+: B :+: C :+: D :+: E :+: F :+: G :+: H :+: I :+: J :+: K :+: L :+: M :+: N :+: O :+: P :+: Q :+: R :+: S :+: T :+: U :+: CNil]
   type Program22[A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V] =
     Program[A :+: B :+: C :+: D :+: E :+: F :+: G :+: H :+: I :+: J :+: K :+: L :+: M :+: N :+: O :+: P :+: Q :+: R :+: S :+: T :+: U :+: V :+: CNil]
-  object Program {
-    import shapeless.ops.coproduct._
-
-    type Aux[C <: Coproduct, R] = Program[C] { type Result = R }
-
-    case class Pure[A <: Work](work: A) extends Program[A :+: CNil] { self =>
-      type Result = work.Result
-      def run(executor: (A :+: CNil) => Result): Result = executor(Coproduct[A :+: CNil](work))
-    }
-    case class FlatMap[
-      AC <: Coproduct,
-      BC <: Coproduct,
-      C <: Coproduct,
-      AR,
-      BR
-    ](first: Aux[AC, AR], mapper: AR => Aux[BC, BR])(implicit prepend: Prepend.Aux[AC, BC, C]) extends Program[C] {
-      type Result = BR
-      // to make this work, `executor` needs to return Work#Result depending on the actual type
-      // which can't happen with this design because `executor` would try to pick its Result at runtime
-      // (use `executors`, an hlist of (Work => Work#Result) containing everything in C?)
-      def run[L <: HList](executors: Executors[L])(implicit mapper: Mapper[Executors[L], C]) = {
-        first.run(executors)
-        val ar: AR = first.run((ac: AC) => (prepend(Left(ac)).map(executors))())
-        mapper(ar).run((bc: BC) => executor(prepend(Right(bc))))
-      }
-    }
-    // case class Aligned[AC <: Coproduct, C <: Coproduct](ac: AC)()
-
-    // trait
-
-
-
-    // use `align` to tell whether two programs have the same types of work
-    // def align[K <: Coproduct](implicit align: Align[C, K]): K = align(c)
-    // create a `flatten` function; use it to compare programs with combined
-
-    def apply[A <: Work](chore: A): Program1[A] = Pure(chore)
-
-    implicit class ProgramOps[C <: Coproduct, R, A <: Aux[C, R]](work: A) {
-      // def map[B](f: R => B) =
-      //   FlatMap(chore, (a: R) => Pure(f(a)))
-      // def flatMap[C2 <: Coproduct, R2, B <: Aux[C2, R2]](f: R => B)(
-      //   implicit 
-      // ): Program[A :+: B :+: CNil] =
-      //   FlatMap[C, C2, R, R2, A, B](work, f)
-    }
-  }
 
   sealed trait GameWork[R] extends Work { type Result = R }
   object GameWork {
